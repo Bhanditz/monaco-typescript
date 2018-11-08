@@ -8,6 +8,9 @@ import * as ts from './lib/typescriptServices';
 import { lib_dts, lib_es6_dts } from './lib/lib';
 import * as fetchTypings from './fetchDependencyTypings';
 
+import * as ls from './lib/emmet/expand/languageserver-types';
+import * as emmet from './lib/emmet/emmetHelper';
+
 import Promise = monaco.Promise;
 import IWorkerContext = monaco.worker.IWorkerContext;
 
@@ -21,17 +24,27 @@ const ES6_LIB = {
 	CONTENTS: lib_es6_dts
 };
 
-// Quickly remove amd so BrowserFS will register to global scope instead.
-const oldamd = self.define.amd;
-self.define.amd = null;
-self.importScripts(
-  `/static/browserfs/browserfs.min.js`
-);
-self.define.amd = oldamd;
+export enum Priority {
+	Emmet,
+	Platform
+}
 
-self.BrowserFS = BrowserFS;
-self.process = BrowserFS.BFSRequire('process');
-self.Buffer = BrowserFS.BFSRequire('buffer').Buffer;
+declare global {
+  interface Window { BrowserFS: any; }
+}
+
+// Quickly remove amd so BrowserFS will register to global scope instead.
+// @ts-ignore
+const oldamd = self.define.amd;
+(self as any).define.amd = null;
+(self as any).importScripts(
+  `/static/browserfs2/browserfs.min.js`
+);
+(self as any).define.amd = oldamd;
+
+(self as any).BrowserFS = BrowserFS;
+(self as any).process = BrowserFS.BFSRequire('process');
+(self as any).Buffer = BrowserFS.BFSRequire('buffer').Buffer;
 
 
 const getAllFiles = (fs: any, dir: string, filelist?: string[]) => {
@@ -61,13 +74,15 @@ export class TypeScriptWorker implements ts.LanguageServiceHost {
   private _compilerOptions: ts.CompilerOptions;
 
   private fs: any;
-  private files: {[path: string]: string} = {};
+  private files: Map<string, string> = new Map()
+  private typesLoaded: boolean = false;
 
 	constructor(ctx: IWorkerContext, createData: ICreateData) {
 		this._ctx = ctx;
 		this._compilerOptions = createData.compilerOptions;
     this._extraLibs = createData.extraLibs;
 
+    // @ts-ignore
     ctx.onModelRemoved((str) => {
       const p = str.indexOf('file://') === 0 ? monaco.Uri.parse(str).fsPath : str;
 
@@ -97,6 +112,20 @@ export class TypeScriptWorker implements ts.LanguageServiceHost {
   }
 
   getTypings() {
+    const ensureDirectoryExistence = (filePath, cb) => {
+      const dirname = BrowserFS.BFSRequire('path').dirname(filePath);
+      this.fs.stat(dirname, (err, exists) => {
+        if (!!exists) {
+          cb(true);
+          return;
+        }
+
+        ensureDirectoryExistence(dirname, () => {
+          this.fs.mkdir(dirname, cb);
+        });
+      });
+    }
+
     this.fs.readFile('/sandbox/package.json', (e, data) => {
       if (e) {
         return;
@@ -106,13 +135,31 @@ export class TypeScriptWorker implements ts.LanguageServiceHost {
       try {
         const p = JSON.parse(code);
 
-        fetchTypings.fetchAndAddDependencies(p.dependencies, (paths) => {
-          Object.keys(paths).forEach(p => {
-            this.files['/' + p] = paths[p];
-          })
-        })
+        Promise.join(Object.keys(p.dependencies).map(depName => {
+          const version = p.dependencies[depName];
+
+          fetchTypings.fetchAndAddDependencies(depName, version, (paths) => {
+            const fileAmount = Object.keys(paths).length;
+
+            Object.keys(paths).forEach(p => {
+              const pathToWrite = '/sandbox/' + p;
+              this.files.set(pathToWrite, paths[p]);
+
+              // Only sync with browsersfs if the file amount is not too high, otherwise we'll
+              // clog all resources of browserfs
+              if (fileAmount < 400) {
+                ensureDirectoryExistence(pathToWrite, () => {
+                  this.fs.writeFile(pathToWrite, paths[p], () => {});
+                });
+              }
+            });
+          }).catch(e => {});
+        })).then(() => {
+          this.typesLoaded = true;
+          this._languageService.cleanupSemanticCache();
+        });
       } catch (e) {
-        return
+        return;
       }
     })
   }
@@ -120,23 +167,26 @@ export class TypeScriptWorker implements ts.LanguageServiceHost {
   syncFile(path: string) {
     this.fs.readFile(path, (e, str) => {
       if (e) {
-        delete this.files[path];
-        throw e;
+        this.files.delete(path);
+        return;
       }
 
-      this.files[path] = str.toString();
+      this.files.set(path, str.toString());
     })
   }
 
   syncDirectory(path: string) {
     this.fs.readdir(path, (e, entries) => {
-      if (e) throw e;
+      if (e) {
+        return;
+      }
 
       entries.forEach(entry => {
         const fullEntry = path + '/' + entry;
         this.fs.stat(fullEntry, (err, stat) => {
           if (err) {
-            throw err;
+            this.files.delete(path);
+            return;
           }
 
           if (stat.isDirectory()) {
@@ -159,7 +209,7 @@ export class TypeScriptWorker implements ts.LanguageServiceHost {
   readFile(resource: string, encoding?: string) {
     const path = resource.indexOf('file://') === 0 ? monaco.Uri.parse(resource).fsPath : resource;
     if (this.fs) {
-      return this.files[path];
+      return this.files.get(path);
     }
 
     return undefined;
@@ -167,7 +217,7 @@ export class TypeScriptWorker implements ts.LanguageServiceHost {
 
 	getScriptFileNames(): string[] {
 		let models = this._ctx.getMirrorModels().map(model => model.uri.toString());
-		return models.concat(Object.keys(this._extraLibs)).concat(Object.keys(this.files).map(p => `file://${p}`));
+		return models.concat(Object.keys(this._extraLibs)).concat([...this.files.keys()].map(p => `file://${p}`));
 	}
 
 	private _getModel(fileName: string): monaco.worker.IMirrorModel {
@@ -208,7 +258,7 @@ export class TypeScriptWorker implements ts.LanguageServiceHost {
 			text = ES6_LIB.CONTENTS;
 		} else if (this.fs) {
       const usedFilename = fileName.indexOf('file://') === 0 ? monaco.Uri.parse(fileName).fsPath : fileName;
-      text = this.files[usedFilename];
+      text = this.files.get(usedFilename);
 		} else {
       return;
     }
@@ -255,7 +305,7 @@ export class TypeScriptWorker implements ts.LanguageServiceHost {
       return false;
     }
     const path = resource.indexOf('file://') === 0 ? monaco.Uri.parse(resource).fsPath : resource;
-    return this.files[path] !== undefined;
+    return this.files.has(path);
   }
 
   directoryExists(resource: string) {
@@ -263,7 +313,7 @@ export class TypeScriptWorker implements ts.LanguageServiceHost {
       return false;
     }
     const path = resource.indexOf('file://') === 0 ? monaco.Uri.parse(resource).fsPath : resource;
-    return Object.keys(this.files).some(f => f.indexOf(path) === 0);
+    return [...this.files.keys()].some(f => f.indexOf(path) === 0);
   }
 
   getDirectories(resource: string) {
@@ -272,7 +322,7 @@ export class TypeScriptWorker implements ts.LanguageServiceHost {
     }
     const path = resource.indexOf('file://') === 0 ? monaco.Uri.parse(resource).fsPath : resource;
     const resourceSplits = path.split('/').length;
-    return Object.keys(this.files).filter(f => f.indexOf(path) === 0).map(p => {
+    return [...this.files.keys()].filter(f => f.indexOf(path) === 0).map(p => {
       const newP = p.split('/');
       newP.length = resourceSplits;
 
@@ -280,6 +330,15 @@ export class TypeScriptWorker implements ts.LanguageServiceHost {
     });
   }
 
+  private _getTextDocument(uri: string): ls.TextDocument {
+		let models = this._ctx.getMirrorModels();
+		for (let model of models) {
+			if (model.uri.toString() === uri) {
+				return ls.TextDocument.create(uri, 'javascript', model.version, model.getValue());
+			}
+		}
+		return null;
+  }
 
 	// --- language features
 
@@ -296,12 +355,20 @@ export class TypeScriptWorker implements ts.LanguageServiceHost {
 	}
 
 	getSyntacticDiagnostics(fileName: string): Promise<ts.Diagnostic[]> {
+    if (!this.typesLoaded) {
+      return Promise.as([]);
+    }
+
 		const diagnostics = this._languageService.getSyntacticDiagnostics(fileName);
 		TypeScriptWorker.clearFiles(diagnostics);
 		return Promise.as(diagnostics);
 	}
 
 	getSemanticDiagnostics(fileName: string): Promise<ts.Diagnostic[]> {
+    if (!this.typesLoaded) {
+      return Promise.as([]);
+    }
+
 		const diagnostics = this._languageService.getSemanticDiagnostics(fileName);
 		TypeScriptWorker.clearFiles(diagnostics);
 		return Promise.as(diagnostics);
@@ -313,8 +380,23 @@ export class TypeScriptWorker implements ts.LanguageServiceHost {
 		return Promise.as(diagnostics);
 	}
 
-	getCompletionsAtPosition(fileName: string, position: number): Promise<ts.CompletionInfo> {
-		return Promise.as(this._languageService.getCompletionsAtPosition(fileName, position, undefined));
+	getCompletionsAtPosition(fileName: string, offset: number): Promise<{languageCompletions: ts.CompletionInfo | undefined, emmetCompletions: any | undefined}> {
+    const document = this._getTextDocument(fileName);
+    const position = document.positionAt(offset);
+    const languageCompletions = this._languageService.getCompletionsAtPosition(fileName, offset, undefined)
+    const emmetCompletions = emmet.doComplete(document, position, 'jsx', {
+      showExpandedAbbreviation: 'always',
+      showAbbreviationSuggestions: true,
+      syntaxProfiles: {},
+      variables: {},
+      preferences: {}
+    });
+
+    const newLanguageCompletions = {
+      languageCompletions,
+      emmetCompletions
+    }
+		return Promise.as(newLanguageCompletions);
 	}
 
 	getCompletionEntryDetails(fileName: string, position: number, entry: string): Promise<ts.CompletionEntryDetails> {

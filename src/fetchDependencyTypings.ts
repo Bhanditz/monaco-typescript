@@ -1,5 +1,5 @@
 /* eslint-disable no-param-reassign */
-import * as ts from './lib/typescriptServices';
+import * as ts from "./lib/typescriptServices";
 
 const splitPathRe = /^(\/?|)([\s\S]*?)((?:\.{1,2}|[^\/]+?|)(\.[^.\/]*|))(?:[\/]*)$/;
 
@@ -17,13 +17,13 @@ function normalizeArray(parts, allowAboveRoot) {
     const p = parts[i];
 
     // ignore empty parts
-    if (!p || p === '.') continue; // eslint-disable-line no-continue
+    if (!p || p === ".") continue; // eslint-disable-line no-continue
 
-    if (p === '..') {
-      if (res.length && res[res.length - 1] !== '..') {
+    if (p === "..") {
+      if (res.length && res[res.length - 1] !== "..") {
         res.pop();
       } else if (allowAboveRoot) {
-        res.push('..');
+        res.push("..");
       }
     } else {
       res.push(p);
@@ -34,34 +34,34 @@ function normalizeArray(parts, allowAboveRoot) {
 }
 
 export function isAbsolute(path: string) {
-  return path.charAt(0) === '/';
+  return path.charAt(0) === "/";
 }
 
 export function normalize(path: string) {
   const isAbs = isAbsolute(path);
-  const trailingSlash = path && path[path.length - 1] === '/';
+  const trailingSlash = path && path[path.length - 1] === "/";
   let newPath = path;
 
   // Normalize the path
-  newPath = normalizeArray(newPath.split('/'), !isAbs).join('/');
+  newPath = normalizeArray(newPath.split("/"), !isAbs).join("/");
 
   if (!newPath && !isAbs) {
-    newPath = '.';
+    newPath = ".";
   }
   if (newPath && trailingSlash) {
-    newPath += '/';
+    newPath += "/";
   }
 
-  return (isAbs ? '/' : '') + newPath;
+  return (isAbs ? "/" : "") + newPath;
 }
 
 export function join(...paths: Array<any>) {
-  let path = '';
+  let path = "";
   for (let i = 0; i < paths.length; i += 1) {
     const segment = paths[i];
 
-    if (typeof segment !== 'string') {
-      throw new TypeError('Arguments to path.join must be strings');
+    if (typeof segment !== "string") {
+      throw new TypeError("Arguments to path.join must be strings");
     }
     if (segment) {
       if (!path) {
@@ -81,7 +81,7 @@ export function dirname(path: string) {
 
   if (!root && !dir) {
     // No dirname whatsoever
-    return '.';
+    return ".";
   }
 
   if (dir) {
@@ -92,19 +92,19 @@ export function dirname(path: string) {
   return root + dir;
 }
 
-export function basename(p: string, ext: string = '') {
+export function basename(p: string, ext: string = "") {
   // Special case: Normalize will modify this to '.'
-  if (p === '') {
+  if (p === "") {
     return p;
   }
   // Normalize the string first to remove any weirdness.
   const path = normalize(p);
   // Get the last part of the string.
-  const sections = path.split('/');
+  const sections = path.split("/");
   const lastPart = sections[sections.length - 1];
   // Special case: If it's empty, then we have a string like so: foo/
   // Meaning, 'foo' is guaranteed to be a directory.
-  if (lastPart === '' && sections.length > 1) {
+  if (lastPart === "" && sections.length > 1) {
     return sections[sections.length - 2];
   }
   // Remove the extension, if need be.
@@ -118,20 +118,20 @@ export function basename(p: string, ext: string = '') {
 }
 
 export function absolute(path: string) {
-  if (path.indexOf('/') === 0) {
+  if (path.indexOf("/") === 0) {
     return path;
   }
 
-  if (path.indexOf('./') === 0) {
-    return path.replace('./', '/');
+  if (path.indexOf("./") === 0) {
+    return path.replace("./", "/");
   }
 
-  return '/' + path;
+  return "/" + path;
 }
 
+const UNPKG = true;
 
-
-const ROOT_URL = `https://cdn.jsdelivr.net/`;
+const ROOT_URL = UNPKG ? `https://unpkg.com/` : `https://cdn.jsdelivr.net/npm/`;
 const loadedTypings = [];
 
 /**
@@ -170,18 +170,14 @@ const doFetch = url => {
 };
 
 const fetchFromDefinitelyTyped = (dependency, version, fetchedPaths) => {
-  const depUrl = `${ROOT_URL}npm/@types/${dependency
-    .replace('@', '')
-    .replace(/\//g, '__')}`;
+  const depUrl = `${ROOT_URL}@types/${dependency
+    .replace("@", "")
+    .replace(/\//g, "__")}`;
 
   return doFetch(`${depUrl}/package.json`).then(async typings => {
-    const rootVirtualPath = `node_modules/@types/${dependency}`
-    const referencedPath = `${rootVirtualPath}/package.json`
-    addLib(
-      referencedPath,
-      typings,
-      fetchedPaths
-    );
+    const rootVirtualPath = `node_modules/@types/${dependency}`;
+    const referencedPath = `${rootVirtualPath}/package.json`;
+    addLib(referencedPath, typings, fetchedPaths);
 
     // const typeVersion = await doFetch(`${depUrl}/package.json`).then(res => {
     //   const packagePath = `${rootVirtualPath}/package.json`;
@@ -193,18 +189,18 @@ const fetchFromDefinitelyTyped = (dependency, version, fetchedPaths) => {
     return getFileMetaData(
       `@types/${dependency}`,
       JSON.parse(typings).version,
-      '/'
+      "/"
     ).then(fileData =>
       getFileTypes(
         depUrl,
         `@types/${dependency}`,
-        '/index.d.ts',
+        "/index.d.ts",
         fetchedPaths,
         fileData
       )
     );
   });
-}
+};
 
 const getRequireStatements = (title: string, code: string) => {
   const requires = [];
@@ -220,11 +216,10 @@ const getRequireStatements = (title: string, code: string) => {
   // Check the reference comments
   sourceFile.referencedFiles.forEach(ref => {
     requires.push(ref.fileName);
-  })
+  });
 
   ts.forEachChild(sourceFile, node => {
     switch (node.kind) {
-
       case ts.SyntaxKind.ImportDeclaration: {
         // @ts-ignore
         if (node.moduleSpecifier) {
@@ -248,7 +243,8 @@ const getRequireStatements = (title: string, code: string) => {
     }
   });
 
-  return requires;
+  // Early exit with too many imports, takes too much CPU
+  return requires.length > 400 ? [] : requires;
 };
 
 const tempTransformFiles = files => {
@@ -264,7 +260,7 @@ const tempTransformFiles = files => {
 const transformFiles = dir =>
   dir.files
     ? dir.files.reduce((prev, next) => {
-        if (next.type === 'file') {
+        if (next.type === "file") {
           return { ...prev, [next.path]: next };
         }
 
@@ -272,13 +268,21 @@ const transformFiles = dir =>
       }, {})
     : {};
 
-const getFileMetaData = (dependency, version, depPath) =>
-  doFetch(
+const getFileMetaData = (dependency, version, depPath) => {
+  if (UNPKG) {
+    return doFetch(
+      `https://unpkg.com/${dependency}@${version}/${depPath}?meta`
+    )
+    .then(response => JSON.parse(response))
+  }
+
+  return doFetch(
     `https://data.jsdelivr.com/v1/package/npm/${dependency}@${version}/flat`
   )
     .then(response => JSON.parse(response))
     .then(response => response.files.filter(f => f.name.startsWith(depPath)))
     .then(tempTransformFiles);
+}
 
 const resolveAppropiateFile = (fileMetaData, relativePath) => {
   const absolutePath = `/${relativePath}`;
@@ -296,36 +300,52 @@ const getFileTypes = (
   depUrl,
   dependency,
   depPath,
-  fetchedPaths: Array<string>,
+  fetchedPaths,
   fileMetaData
 ) => {
-  const virtualPath = join('node_modules', dependency, depPath);
+  const virtualPath = join("node_modules", dependency, depPath);
 
   if (fetchedPaths[virtualPath]) return null;
 
-  return doFetch(`${depUrl}/${depPath}`).then(typings => {
+  return doFetch(`${depUrl}${depPath}`).then(typings => {
     if (fetchedPaths[virtualPath]) return null;
 
     addLib(virtualPath, typings, fetchedPaths);
 
+    const requireStatements = getRequireStatements(depPath, typings);
+
+    const isNoDependency = dep => dep.startsWith(".") || dep.endsWith(".d.ts");
+
+    const dependencies = requireStatements.filter(x => !isNoDependency(x));
+
     // Now find all require statements, so we can download those types too
     return Promise.all(
-      getRequireStatements(depPath, typings)
-        .filter(
-          // Don't add global deps
-          dep => dep.startsWith('.')
+      dependencies.map(dep => {
+        fetchAndAddDependencies(dep, 'latest', () => {}, fetchedPaths).catch(
+          () => {
+            /* ignore */
+          }
         )
-        .map(relativePath => join(dirname(depPath), relativePath))
-        .map(relativePath => resolveAppropiateFile(fileMetaData, relativePath))
-        .map(nextDepPath =>
-          getFileTypes(
-            depUrl,
-            dependency,
-            nextDepPath,
-            fetchedPaths,
-            fileMetaData
+      }).concat(
+        requireStatements
+          .filter(
+            // Don't add global deps, only if those are typing files as they are often relative
+            isNoDependency
           )
-        )
+          .map(relativePath => join(dirname(depPath), relativePath))
+          .map(relativePath =>
+            resolveAppropiateFile(fileMetaData, relativePath)
+          )
+          .map(nextDepPath =>
+            getFileTypes(
+              depUrl,
+              dependency,
+              nextDepPath,
+              fetchedPaths,
+              fileMetaData
+            )
+          )
+      )
     );
   });
 };
@@ -350,22 +370,26 @@ function fetchFromMeta(dependency, version, fetchedPaths) {
       }
 
       if (dtsFiles.length === 0) {
-        throw new Error('No inline typings found.');
+        throw new Error("No inline typings found.");
       }
 
-      return Promise.all(dtsFiles.map(file =>
-        doFetch(`https://cdn.jsdelivr.net/npm/${dependency}@${version}${file}`)
-          .then(dtsFile =>
-            addLib(`node_modules/${dependency}${file}`, dtsFile, fetchedPaths)
+      return Promise.all(
+        dtsFiles.map(file =>
+          doFetch(
+            `https://cdn.jsdelivr.net/npm/${dependency}@${version}${file}`
           )
-          .catch(() => {})
-      ));
+            .then(dtsFile =>
+              addLib(`node_modules/${dependency}${file}`, dtsFile, fetchedPaths)
+            )
+            .catch(() => {})
+        )
+      );
     });
 }
 
 function fetchFromTypings(dependency, version, fetchedPaths) {
-  const depUrl = `${ROOT_URL}npm/${dependency}@${version}`;
-  return doFetch(`${depUrl}/package.json`)
+  const depUrl = `${ROOT_URL}${dependency}@${version}/`;
+  return doFetch(`${depUrl}package.json`)
     .then(response => JSON.parse(response))
     .then(packageJSON => {
       const types = packageJSON.typings || packageJSON.types;
@@ -381,7 +405,7 @@ function fetchFromTypings(dependency, version, fetchedPaths) {
         return getFileMetaData(
           dependency,
           version,
-          join('/', dirname(types))
+          join("/", dirname(types))
         ).then(fileData =>
           getFileTypes(
             depUrl,
@@ -393,46 +417,44 @@ function fetchFromTypings(dependency, version, fetchedPaths) {
         );
       }
 
-      throw new Error('No typings field in package.json');
+      throw new Error("No typings field in package.json");
     });
 }
 
-export async function fetchAndAddDependencies(dependencies, onDependencies) {
-  const fetchedPaths = {};
+export async function fetchAndAddDependencies(
+  dep,
+  version,
+  onDependencies,
+  fetchedPaths = {}
+) {
+  try {
+    if (loadedTypings.indexOf(dep) === -1) {
+      loadedTypings.push(dep);
 
-  const depNames = Object.keys(dependencies);
+      let depVersion = version;
 
-  await Promise.all(
-    depNames.map(async dep => {
       try {
-        if (loadedTypings.indexOf(dep) === -1) {
-          loadedTypings.push(dep);
-
-          const depVersion = await doFetch(
-            `https://data.jsdelivr.com/v1/package/resolve/npm/${dep}@${
-              dependencies[dep]
-            }`
-          )
-            .then(x => JSON.parse(x))
-            .then(x => x.version);
-          // eslint-disable-next-line no-await-in-loop
-          await fetchFromTypings(dep, depVersion, fetchedPaths).catch(() =>
-            // not available in package.json, try checking meta for inline .d.ts files
-            fetchFromMeta(dep, depVersion, fetchedPaths).catch(() =>
-              // Not available in package.json or inline from meta, try checking in @types/
-              fetchFromDefinitelyTyped(dep, depVersion, fetchedPaths)
-            )
-          );
-        }
-      } catch (e) {
-        // // Don't show these cryptic messages to users, because this is not vital
-        // if (process.env.NODE_ENV === 'development') {
-        //   console.error(`Couldn't find typings for ${dep}`, e);
-        // }
-      }
-    })
-  );
+        await doFetch(`https://unpkg.com/${dep}@${version}/package.json`)
+        .then(x => JSON.parse(x))
+        .then(x => {
+          depVersion = x.version
+        });
+      } catch (e) {}
+      // eslint-disable-next-line no-await-in-loop
+      await fetchFromTypings(dep, depVersion, fetchedPaths).catch(() =>
+        // not available in package.json, try checking meta for inline .d.ts files
+        fetchFromMeta(dep, depVersion, fetchedPaths).catch(() =>
+          // Not available in package.json or inline from meta, try checking in @types/
+          fetchFromDefinitelyTyped(dep, depVersion, fetchedPaths)
+        )
+      );
+    }
+  } catch (e) {
+    // // Don't show these cryptic messages to users, because this is not vital
+    // if (process.env.NODE_ENV === 'development') {
+    //   console.error(`Couldn't find typings for ${dep}`, e);
+    // }
+  }
 
   onDependencies(fetchedPaths);
 }
-
